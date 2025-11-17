@@ -105,7 +105,8 @@ class AbletonConnection:
             "create_midi_track", "create_audio_track", "set_track_name",
             "create_clip", "add_notes_to_clip", "set_clip_name",
             "set_tempo", "fire_clip", "stop_clip", "set_device_parameter",
-            "start_playback", "stop_playback", "load_instrument_or_effect"
+            "start_playback", "stop_playback", "load_instrument_or_effect",
+            "create_cue_point", "set_cue_point_name", "set_cue_point_time", "delete_cue_point"
         ]
         
         try:
@@ -651,6 +652,135 @@ def load_drum_kit(ctx: Context, track_index: int, rack_uri: str, kit_path: str) 
     except Exception as e:
         logger.error(f"Error loading drum kit: {str(e)}")
         return f"Error loading drum kit: {str(e)}"
+
+@mcp.tool()
+def list_cue_points(ctx: Context) -> str:
+    """
+    Get all cue points (arrangement markers/locators) in the current Ableton Live session.
+
+    Returns:
+    - A list of all cue points with their index, time (in beats), and name
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("list_cue_points", {})
+
+        cue_points = result.get("cue_points", [])
+        count = result.get("count", 0)
+
+        if count == 0:
+            return "No cue points found in the arrangement."
+
+        output = f"Found {count} cue point{'s' if count != 1 else ''} in the arrangement:\n\n"
+        for cp in cue_points:
+            index = cp.get("index", 0)
+            time = cp.get("time", 0.0)
+            name = cp.get("name", "")
+            name_display = f'"{name}"' if name else "(unnamed)"
+            output += f"  [{index}] {name_display} at {time} beats\n"
+
+        return output
+    except Exception as e:
+        logger.error(f"Error listing cue points: {str(e)}")
+        return f"Error listing cue points: {str(e)}"
+
+@mcp.tool()
+def create_cue_point(ctx: Context, time: float, name: str = "") -> str:
+    """
+    Create a new cue point (arrangement marker/locator) at the specified time.
+
+    Parameters:
+    - time: The time in beats where the cue point should be created
+    - name: Optional name for the cue point (default: empty string)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("create_cue_point", {
+            "time": time,
+            "name": name
+        })
+
+        index = result.get("index", 0)
+        actual_time = result.get("time", time)
+        actual_name = result.get("name", "")
+
+        name_display = f'"{actual_name}"' if actual_name else "(unnamed)"
+        return f"Created cue point {name_display} at {actual_time} beats (index: {index})"
+    except Exception as e:
+        logger.error(f"Error creating cue point: {str(e)}")
+        return f"Error creating cue point: {str(e)}"
+
+@mcp.tool()
+def set_cue_point_name(ctx: Context, index: int, name: str) -> str:
+    """
+    Set or change the name of an existing cue point.
+
+    Parameters:
+    - index: The index of the cue point to rename (0-based)
+    - name: The new name for the cue point
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_cue_point_name", {
+            "index": index,
+            "name": name
+        })
+
+        actual_time = result.get("time", 0.0)
+        actual_name = result.get("name", "")
+
+        return f"Renamed cue point at index {index} to \"{actual_name}\" (time: {actual_time} beats)"
+    except Exception as e:
+        logger.error(f"Error setting cue point name: {str(e)}")
+        return f"Error setting cue point name: {str(e)}"
+
+@mcp.tool()
+def set_cue_point_time(ctx: Context, index: int, time: float) -> str:
+    """
+    Move an existing cue point to a new time position.
+
+    Parameters:
+    - index: The index of the cue point to move (0-based)
+    - time: The new time in beats where the cue point should be positioned
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_cue_point_time", {
+            "index": index,
+            "time": time
+        })
+
+        actual_name = result.get("name", "")
+        actual_time = result.get("time", 0.0)
+
+        name_display = f'"{actual_name}"' if actual_name else f"at index {index}"
+        return f"Moved cue point {name_display} to {actual_time} beats"
+    except Exception as e:
+        logger.error(f"Error setting cue point time: {str(e)}")
+        return f"Error setting cue point time: {str(e)}"
+
+@mcp.tool()
+def delete_cue_point(ctx: Context, index: int) -> str:
+    """
+    Delete a cue point from the arrangement.
+
+    Parameters:
+    - index: The index of the cue point to delete (0-based)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("delete_cue_point", {
+            "index": index
+        })
+
+        deleted_name = result.get("name", "")
+        deleted_time = result.get("time", 0.0)
+
+        name_display = f'"{deleted_name}"' if deleted_name else "(unnamed)"
+        return f"Deleted cue point {name_display} at {deleted_time} beats (was at index {index})"
+    except Exception as e:
+        logger.error(f"Error deleting cue point: {str(e)}")
+        return f"Error deleting cue point: {str(e)}"
 
 # Main execution
 def main():
