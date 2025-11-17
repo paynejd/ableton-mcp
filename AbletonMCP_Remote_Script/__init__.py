@@ -225,11 +225,14 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_track_info":
                 track_index = params.get("track_index", 0)
                 response["result"] = self._get_track_info(track_index)
+            elif command_type == "list_cue_points":
+                response["result"] = self._list_cue_points()
             # Commands that modify Live's state should be scheduled on the main thread
-            elif command_type in ["create_midi_track", "set_track_name", 
-                                 "create_clip", "add_notes_to_clip", "set_clip_name", 
+            elif command_type in ["create_midi_track", "set_track_name",
+                                 "create_clip", "add_notes_to_clip", "set_clip_name",
                                  "set_tempo", "fire_clip", "stop_clip",
-                                 "start_playback", "stop_playback", "load_browser_item"]:
+                                 "start_playback", "stop_playback", "load_browser_item",
+                                 "create_cue_point", "set_cue_point_name", "set_cue_point_time", "delete_cue_point"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -282,7 +285,22 @@ class AbletonMCP(ControlSurface):
                             track_index = params.get("track_index", 0)
                             item_uri = params.get("item_uri", "")
                             result = self._load_browser_item(track_index, item_uri)
-                        
+                        elif command_type == "create_cue_point":
+                            time = params.get("time", 0.0)
+                            name = params.get("name", "")
+                            result = self._create_cue_point(time, name)
+                        elif command_type == "set_cue_point_name":
+                            index = params.get("index", 0)
+                            name = params.get("name", "")
+                            result = self._set_cue_point_name(index, name)
+                        elif command_type == "set_cue_point_time":
+                            index = params.get("index", 0)
+                            time = params.get("time", 0.0)
+                            result = self._set_cue_point_time(index, time)
+                        elif command_type == "delete_cue_point":
+                            index = params.get("index", 0)
+                            result = self._delete_cue_point(index)
+
                         # Put the result in the queue
                         response_queue.put({"status": "success", "result": result})
                     except Exception as e:
@@ -1059,4 +1077,110 @@ class AbletonMCP(ControlSurface):
         except Exception as e:
             self.log_message("Error getting browser items at path: {0}".format(str(e)))
             self.log_message(traceback.format_exc())
+            raise
+
+    def _list_cue_points(self):
+        """Get all cue points in the arrangement"""
+        try:
+            cue_points = []
+            for index, cue_point in enumerate(self._song.cue_points):
+                cue_points.append({
+                    "index": index,
+                    "time": cue_point.time,
+                    "name": cue_point.name
+                })
+
+            result = {
+                "cue_points": cue_points,
+                "count": len(cue_points)
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error listing cue points: {0}".format(str(e)))
+            raise
+
+    def _create_cue_point(self, time, name=""):
+        """Create a new cue point at the specified time"""
+        try:
+            # Create the cue point
+            self._song.create_cue_point(time)
+
+            # Get the newly created cue point (it should be the last one)
+            new_cue_point = self._song.cue_points[-1]
+
+            # Set the name if provided
+            if name:
+                new_cue_point.name = name
+
+            result = {
+                "index": len(self._song.cue_points) - 1,
+                "time": new_cue_point.time,
+                "name": new_cue_point.name
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error creating cue point: {0}".format(str(e)))
+            raise
+
+    def _set_cue_point_name(self, index, name):
+        """Set the name of a cue point"""
+        try:
+            if index < 0 or index >= len(self._song.cue_points):
+                raise IndexError("Cue point index out of range")
+
+            cue_point = self._song.cue_points[index]
+            cue_point.name = name
+
+            result = {
+                "index": index,
+                "name": cue_point.name,
+                "time": cue_point.time
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error setting cue point name: {0}".format(str(e)))
+            raise
+
+    def _set_cue_point_time(self, index, time):
+        """Set the time of a cue point"""
+        try:
+            if index < 0 or index >= len(self._song.cue_points):
+                raise IndexError("Cue point index out of range")
+
+            cue_point = self._song.cue_points[index]
+            cue_point.time = time
+
+            result = {
+                "index": index,
+                "name": cue_point.name,
+                "time": cue_point.time
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error setting cue point time: {0}".format(str(e)))
+            raise
+
+    def _delete_cue_point(self, index):
+        """Delete a cue point"""
+        try:
+            if index < 0 or index >= len(self._song.cue_points):
+                raise IndexError("Cue point index out of range")
+
+            # Get info before deletion for confirmation
+            cue_point = self._song.cue_points[index]
+            deleted_name = cue_point.name
+            deleted_time = cue_point.time
+
+            # Delete the cue point
+            self._song.delete_cue_point(index)
+
+            result = {
+                "deleted": True,
+                "index": index,
+                "name": deleted_name,
+                "time": deleted_time
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error deleting cue point: {0}".format(str(e)))
             raise
