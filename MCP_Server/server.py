@@ -104,7 +104,7 @@ class AbletonConnection:
         is_modifying_command = command_type in [
             "create_midi_track", "create_audio_track", "set_track_name",
             "create_clip", "add_notes_to_clip", "set_clip_name",
-            "set_tempo", "fire_clip", "stop_clip", "set_device_parameter",
+            "set_tempo", "fire_clip", "stop_clip", "set_device_parameter_value",
             "start_playback", "stop_playback", "load_instrument_or_effect",
             "create_cue_point", "set_cue_point_name", "set_cue_point_time", "delete_cue_point"
         ]
@@ -781,6 +781,83 @@ def delete_cue_point(ctx: Context, index: int) -> str:
     except Exception as e:
         logger.error(f"Error deleting cue point: {str(e)}")
         return f"Error deleting cue point: {str(e)}"
+
+@mcp.tool()
+def get_device_parameters(ctx: Context, track_index: int, device_index: int) -> str:
+    """
+    Get all parameters for a specific device on a track.
+
+    Parameters:
+    - track_index: The index of the track containing the device
+    - device_index: The index of the device on the track (0 = first device)
+
+    Returns detailed information about all parameters including their current values,
+    min/max ranges, and whether they are quantized (discrete) or continuous.
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("get_device_parameters", {
+            "track_index": track_index,
+            "device_index": device_index
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting device parameters: {str(e)}")
+        return f"Error getting device parameters: {str(e)}"
+
+@mcp.tool()
+def get_device_parameter_value(ctx: Context, track_index: int, device_index: int, parameter_index: int) -> str:
+    """
+    Get the current value of a specific device parameter.
+
+    Parameters:
+    - track_index: The index of the track containing the device
+    - device_index: The index of the device on the track (0 = first device)
+    - parameter_index: The index of the parameter (use get_device_parameters to see all parameters)
+
+    Returns the parameter's current value, min/max range, and display value.
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("get_device_parameter_value", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_index": parameter_index
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting device parameter value: {str(e)}")
+        return f"Error getting device parameter value: {str(e)}"
+
+@mcp.tool()
+def set_device_parameter_value(ctx: Context, track_index: int, device_index: int, parameter_index: int, value: float) -> str:
+    """
+    Set the value of a specific device parameter.
+
+    Parameters:
+    - track_index: The index of the track containing the device
+    - device_index: The index of the device on the track (0 = first device)
+    - parameter_index: The index of the parameter (use get_device_parameters to see all parameters)
+    - value: The new value for the parameter (must be within the parameter's min/max range)
+
+    This enables automation and control of instrument/effect parameters such as filter cutoff,
+    reverb decay, oscillator pitch, envelope settings, etc.
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_device_parameter_value", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_index": parameter_index,
+            "value": value
+        })
+
+        param_name = result.get("name", "parameter")
+        display_value = result.get("display_value", str(value))
+        return f"Set {param_name} to {display_value} (track {track_index}, device {device_index}, parameter {parameter_index})"
+    except Exception as e:
+        logger.error(f"Error setting device parameter value: {str(e)}")
+        return f"Error setting device parameter value: {str(e)}"
 
 # Main execution
 def main():
