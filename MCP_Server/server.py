@@ -106,7 +106,8 @@ class AbletonConnection:
             "create_clip", "add_notes_to_clip", "set_clip_name",
             "set_tempo", "fire_clip", "stop_clip", "set_device_parameter_value",
             "start_playback", "stop_playback", "load_instrument_or_effect",
-            "create_cue_point", "set_cue_point_name", "set_cue_point_time", "delete_cue_point"
+            "create_cue_point", "set_cue_point_name", "set_cue_point_time", "delete_cue_point",
+            "set_track_property", "set_track_send"
         ]
         
         try:
@@ -858,6 +859,90 @@ def set_device_parameter_value(ctx: Context, track_index: int, device_index: int
     except Exception as e:
         logger.error(f"Error setting device parameter value: {str(e)}")
         return f"Error setting device parameter value: {str(e)}"
+
+@mcp.tool()
+def set_track_property(ctx: Context, track_index: int, property: str, value: Union[float, bool, int, str]) -> str:
+    """
+    Set a property on a track.
+
+    Parameters:
+    - track_index: The index of the track to modify
+    - property: The property to set (see supported properties below)
+    - value: The new value (type depends on property)
+
+    Supported properties:
+
+    **Mixer Controls:**
+    - volume: float (0.0-1.0, where 0.85 ≈ 0dB, 0.0 = -∞dB, 1.0 = +6dB)
+    - pan: float (-1.0 = full left, 0.0 = center, 1.0 = full right)
+    - mute: bool (true to mute, false to unmute)
+    - solo: bool (true to solo, false to unsolo)
+    - arm: bool (true to arm for recording, false to disarm; not supported on return/master tracks)
+
+    **Visual/Organization:**
+    - name: str (track name)
+    - color: int (RGB color in 0x00RRGGBB format, e.g., 0xFF5722 for orange)
+    - color_index: int (0-69, Ableton's color palette index)
+    - fold_state: bool (true = folded, false = unfolded; Group Tracks only)
+
+    **Routing:**
+    - input_routing_type: str (input source name, e.g., "Ext. In", "Resampling")
+    - output_routing_type: str (output target name, e.g., "Master", "Sends Only")
+
+    Examples:
+    - set_track_property(0, "volume", 0.75) - Set track 0 volume to 75%
+    - set_track_property(1, "mute", True) - Mute track 1
+    - set_track_property(2, "pan", -0.5) - Pan track 2 50% left
+    - set_track_property(0, "color_index", 12) - Set track 0 to color 12
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_track_property", {
+            "track_index": track_index,
+            "property": property,
+            "value": value
+        })
+
+        prop_name = result.get("property", property)
+        display_value = result.get("display_value", str(value))
+        return f"Set track {track_index} {prop_name} to {display_value}"
+    except Exception as e:
+        logger.error(f"Error setting track property: {str(e)}")
+        return f"Error setting track property: {str(e)}"
+
+@mcp.tool()
+def set_track_send(ctx: Context, track_index: int, send_index: int, amount: float) -> str:
+    """
+    Set the send level from a track to a return track.
+
+    Parameters:
+    - track_index: The source track index
+    - send_index: The return track/send index (0 = Send A, 1 = Send B, etc.)
+    - amount: Send amount (0.0-1.0, where 0.0 = off, 1.0 = maximum)
+
+    Send routing allows you to route a portion of a track's signal to a return track,
+    typically used for reverb, delay, and other effects that should be shared across
+    multiple tracks.
+
+    Examples:
+    - set_track_send(0, 0, 0.5) - Set track 0's Send A to 50%
+    - set_track_send(1, 1, 0.3) - Set track 1's Send B to 30%
+    - set_track_send(2, 0, 0.0) - Turn off track 2's Send A
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_track_send", {
+            "track_index": track_index,
+            "send_index": send_index,
+            "amount": amount
+        })
+
+        send_letter = chr(65 + send_index)  # 0=A, 1=B, etc.
+        display_value = result.get("display_value", f"{amount:.1%}")
+        return f"Set track {track_index} Send {send_letter} to {display_value}"
+    except Exception as e:
+        logger.error(f"Error setting track send: {str(e)}")
+        return f"Error setting track send: {str(e)}"
 
 # Main execution
 def main():

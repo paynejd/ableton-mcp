@@ -242,7 +242,7 @@ class AbletonMCP(ControlSurface):
                                  "set_tempo", "fire_clip", "stop_clip",
                                  "start_playback", "stop_playback", "load_browser_item",
                                  "create_cue_point", "set_cue_point_name", "set_cue_point_time", "delete_cue_point",
-                                 "set_device_parameter_value"]:
+                                 "set_device_parameter_value", "set_track_property", "set_track_send"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -316,6 +316,16 @@ class AbletonMCP(ControlSurface):
                             parameter_index = params.get("parameter_index", 0)
                             value = params.get("value", 0.0)
                             result = self._set_device_parameter_value(track_index, device_index, parameter_index, value)
+                        elif command_type == "set_track_property":
+                            track_index = params.get("track_index", 0)
+                            property = params.get("property", "")
+                            value = params.get("value")
+                            result = self._set_track_property(track_index, property, value)
+                        elif command_type == "set_track_send":
+                            track_index = params.get("track_index", 0)
+                            send_index = params.get("send_index", 0)
+                            amount = params.get("amount", 0.0)
+                            result = self._set_track_send(track_index, send_index, amount)
 
                         # Put the result in the queue
                         response_queue.put({"status": "success", "result": result})
@@ -430,6 +440,14 @@ class AbletonMCP(ControlSurface):
                     "type": self._get_device_type(device)
                 })
             
+            # Get sends
+            sends = []
+            for send_index, send in enumerate(track.mixer_device.sends):
+                sends.append({
+                    "index": send_index,
+                    "amount": send.value
+                })
+
             result = {
                 "index": track_index,
                 "name": track.name,
@@ -440,6 +458,12 @@ class AbletonMCP(ControlSurface):
                 "arm": track.arm,
                 "volume": track.mixer_device.volume.value,
                 "panning": track.mixer_device.panning.value,
+                "sends": sends,
+                "color": track.color,
+                "color_index": track.color_index,
+                "is_foldable": track.is_foldable if hasattr(track, 'is_foldable') else False,
+                "fold_state": track.fold_state if hasattr(track, 'fold_state') else None,
+                "can_be_armed": track.can_be_armed if hasattr(track, 'can_be_armed') else False,
                 "clip_slots": clip_slots,
                 "devices": devices
             }
@@ -1322,4 +1346,135 @@ class AbletonMCP(ControlSurface):
             return result
         except Exception as e:
             self.log_message("Error setting device parameter value: {0}".format(str(e)))
+            raise
+
+    def _set_track_property(self, track_index, property, value):
+        """Set a property on a track"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+
+            track = self._song.tracks[track_index]
+
+            # Property dispatch with validation
+            if property == "volume":
+                if not (0.0 <= value <= 1.0):
+                    raise ValueError("Volume must be between 0.0 and 1.0")
+                track.mixer_device.volume.value = float(value)
+                display_value = str(track.mixer_device.volume)
+
+            elif property == "pan":
+                if not (-1.0 <= value <= 1.0):
+                    raise ValueError("Pan must be between -1.0 and 1.0")
+                track.mixer_device.panning.value = float(value)
+                display_value = str(track.mixer_device.panning)
+
+            elif property == "mute":
+                track.mute = bool(value)
+                display_value = str(track.mute)
+
+            elif property == "solo":
+                track.solo = bool(value)
+                display_value = str(track.solo)
+
+            elif property == "arm":
+                if not hasattr(track, 'arm') or not hasattr(track, 'can_be_armed') or not track.can_be_armed:
+                    raise ValueError("Track cannot be armed (return tracks and master track cannot be armed)")
+                track.arm = bool(value)
+                display_value = str(track.arm)
+
+            elif property == "name":
+                track.name = str(value)
+                display_value = track.name
+
+            elif property == "color":
+                track.color = int(value)
+                display_value = "0x{0:06X}".format(track.color)
+
+            elif property == "color_index":
+                if not (0 <= int(value) <= 69):
+                    raise ValueError("Color index must be between 0 and 69")
+                track.color_index = int(value)
+                display_value = str(track.color_index)
+
+            elif property == "fold_state":
+                if not hasattr(track, 'fold_state'):
+                    raise ValueError("Track is not a Group Track (only Group Tracks can be folded)")
+                track.fold_state = 1 if bool(value) else 0
+                display_value = "folded" if track.fold_state else "unfolded"
+
+            elif property == "input_routing_type":
+                if not hasattr(track, 'available_input_routing_types'):
+                    raise ValueError("Track does not support input routing")
+                # Find the routing type by name
+                available = track.available_input_routing_types
+                routing_type = None
+                for available_type in available:
+                    if available_type.display_name == str(value):
+                        routing_type = available_type
+                        break
+                if routing_type is None:
+                    raise ValueError("Input routing type '{0}' not found".format(value))
+                track.input_routing_type = routing_type
+                display_value = track.input_routing_type.display_name
+
+            elif property == "output_routing_type":
+                if not hasattr(track, 'available_output_routing_types'):
+                    raise ValueError("Track does not support output routing")
+                # Find the routing type by name
+                available = track.available_output_routing_types
+                routing_type = None
+                for available_type in available:
+                    if available_type.display_name == str(value):
+                        routing_type = available_type
+                        break
+                if routing_type is None:
+                    raise ValueError("Output routing type '{0}' not found".format(value))
+                track.output_routing_type = routing_type
+                display_value = track.output_routing_type.display_name
+
+            else:
+                raise ValueError("Unknown property: {0}".format(property))
+
+            result = {
+                "track_index": track_index,
+                "property": property,
+                "value": value,
+                "display_value": display_value
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error setting track property: {0}".format(str(e)))
+            raise
+
+    def _set_track_send(self, track_index, send_index, amount):
+        """Set the send level from a track to a return track"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+
+            track = self._song.tracks[track_index]
+
+            # Validate send index
+            if send_index < 0 or send_index >= len(track.mixer_device.sends):
+                raise IndexError("Send index {0} out of range (track has {1} sends)".format(
+                    send_index, len(track.mixer_device.sends)))
+
+            # Validate amount range
+            if not (0.0 <= amount <= 1.0):
+                raise ValueError("Send amount must be between 0.0 and 1.0")
+
+            # Set the send amount
+            send = track.mixer_device.sends[send_index]
+            send.value = float(amount)
+
+            result = {
+                "track_index": track_index,
+                "send_index": send_index,
+                "amount": send.value,
+                "display_value": str(send)
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error setting track send: {0}".format(str(e)))
             raise
